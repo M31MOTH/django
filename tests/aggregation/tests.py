@@ -99,6 +99,23 @@ class AggregateTestCase(TestCase):
         s2.books.add(cls.b1, cls.b3, cls.b5, cls.b6)
         s3.books.add(cls.b3, cls.b4, cls.b6)
 
+    def test_filtered_aggregate(self):
+        agg = Sum('rating').filter(pages__gt=600)
+        self.assertEqual(Book.objects.aggregate(rating=agg), {'rating': 9.0})
+
+    def test_filtered_aggregate_no_kwargs(self):
+        agg = Sum('rating').filter()
+        self.assertEqual(Book.objects.aggregate(rating=agg), {'rating': 24.5})
+
+    def test_filtered_aggregate_child_relation(self):
+        agg = Sum('rating').filter(contact=self.a1)
+        self.assertEqual(Book.objects.aggregate(rating=agg), {'rating': 4.5})
+
+    def test_filtered_aggregate_annotate(self):
+        agg = Sum('book__rating').filter(book__price__gt=75)
+        self.assertEqual(list(Author.objects.annotate(ratings=agg).values_list('ratings', flat=True)), {'rating': 4.5})
+
+'''
     def test_empty_aggregate(self):
         self.assertEqual(Author.objects.all().aggregate(), {})
 
@@ -1186,3 +1203,4 @@ class AggregateTestCase(TestCase):
         ).filter(rating_or_num_awards__gt=F('num_awards')).order_by('num_awards')
         self.assertQuerysetEqual(
             qs2, [1, 3], lambda v: v.num_awards)
+'''

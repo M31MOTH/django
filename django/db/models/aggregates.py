@@ -2,7 +2,7 @@
 Classes to represent the definitions of aggregate functions.
 """
 from django.core.exceptions import FieldError
-from django.db.models.expressions import Func, Star
+from django.db.models.expressions import Func, Star, Case, When
 from django.db.models.fields import DecimalField, FloatField, IntegerField
 
 __all__ = [
@@ -35,6 +35,43 @@ class Aggregate(Func):
 
     def get_group_by_cols(self):
         return []
+
+    def filter(self, **kwargs):
+        if not kwargs:
+            return self
+
+        from django.db.models.base import Q
+        return FilteredAggregate(self, Q(**kwargs))
+
+
+class FilteredAggregate(Aggregate):
+    def __init__(self, aggregate, condition, output_field=None):
+        self.aggregate = aggregate
+        self.condition = condition
+        self.case_expression = None
+        super().__init__(aggregate, output_field=output_field)
+
+    @property
+    def name(self):
+        return 'Filtered{0}'.format(self.aggregate.name)
+
+    def resolve_expression(self, query=None, allow_joins=True, reuse=None, summarize=False, for_save=False):
+        c = super().resolve_expression(query, allow_joins, reuse, summarize)
+
+        case_expression = Case(
+            When(self.condition, then=c.aggregate.get_source_expressions()[0])
+        )
+
+        c.case_expression = case_expression.resolve_expression(
+            query, allow_joins, reuse, summarize, for_save
+        )
+
+        return c
+
+    def as_sql(self, compiler, connection, **extra_context):
+        aggregate = self.aggregate.copy()
+        aggregate.set_source_expressions([self.case_expression])
+        return aggregate.as_sql(compiler, connection, **extra_context)
 
 
 class Avg(Aggregate):
