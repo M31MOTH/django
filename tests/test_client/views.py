@@ -49,6 +49,17 @@ def trace_view(request):
         return HttpResponse(t.render(c))
 
 
+def put_view(request):
+    if request.method == 'PUT':
+        t = Template('Data received: {{ data }} is the body.', name='PUT Template')
+        c = Context({'data': request.body.decode()})
+    else:
+        t = Template('Viewing GET page.', name='Empty GET Template')
+        c = Context()
+
+    return HttpResponse(t.render(c))
+
+
 def post_view(request):
     """A view that expects a POST, and returns a different template depending
     on whether any POST data is available
@@ -105,7 +116,8 @@ def method_saving_redirect_view(request):
     https://tools.ietf.org/html/rfc7231#section-6.4.7
     """
     status = 308 if request.GET.get('permanent', False) else 307
-    return HttpResponseRedirect('/post_view/', status=status)
+    redirect_to = request.GET.get('to', '/post_view/')
+    return HttpResponseRedirect(redirect_to, status=status)
 
 
 def view_with_secure(request):

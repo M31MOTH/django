@@ -515,7 +515,7 @@ class Client(RequestFactory):
         """Request a response from the server using GET."""
         response = super().get(path, data=data, secure=secure, **extra)
         if follow:
-            response = self._handle_redirects(response, **extra)
+            response = self._handle_redirects(response, data=data, **extra)
         return response
 
     def post(self, path, data=None, content_type=MULTIPART_CONTENT,
@@ -523,14 +523,14 @@ class Client(RequestFactory):
         """Request a response from the server using POST."""
         response = super().post(path, data=data, content_type=content_type, secure=secure, **extra)
         if follow:
-            response = self._handle_redirects(response, **extra)
+            response = self._handle_redirects(response, data=data, content_type=content_type, **extra)
         return response
 
     def head(self, path, data=None, follow=False, secure=False, **extra):
         """Request a response from the server using HEAD."""
         response = super().head(path, data=data, secure=secure, **extra)
         if follow:
-            response = self._handle_redirects(response, **extra)
+            response = self._handle_redirects(response, data=data, **extra)
         return response
 
     def options(self, path, data='', content_type='application/octet-stream',
@@ -538,7 +538,7 @@ class Client(RequestFactory):
         """Request a response from the server using OPTIONS."""
         response = super().options(path, data=data, content_type=content_type, secure=secure, **extra)
         if follow:
-            response = self._handle_redirects(response, **extra)
+            response = self._handle_redirects(response, data=data, content_type=content_type, **extra)
         return response
 
     def put(self, path, data='', content_type='application/octet-stream',
@@ -546,7 +546,7 @@ class Client(RequestFactory):
         """Send a resource to the server using PUT."""
         response = super().put(path, data=data, content_type=content_type, secure=secure, **extra)
         if follow:
-            response = self._handle_redirects(response, **extra)
+            response = self._handle_redirects(response, data=data, content_type=content_type, **extra)
         return response
 
     def patch(self, path, data='', content_type='application/octet-stream',
@@ -554,7 +554,7 @@ class Client(RequestFactory):
         """Send a resource to the server using PATCH."""
         response = super().patch(path, data=data, content_type=content_type, secure=secure, **extra)
         if follow:
-            response = self._handle_redirects(response, **extra)
+            response = self._handle_redirects(response, data=data, content_type=content_type, **extra)
         return response
 
     def delete(self, path, data='', content_type='application/octet-stream',
@@ -562,14 +562,14 @@ class Client(RequestFactory):
         """Send a DELETE request to the server."""
         response = super().delete(path, data=data, content_type=content_type, secure=secure, **extra)
         if follow:
-            response = self._handle_redirects(response, **extra)
+            response = self._handle_redirects(response, data=data, content_type=content_type, **extra)
         return response
 
     def trace(self, path, data='', follow=False, secure=False, **extra):
         """Send a TRACE request to the server."""
         response = super().trace(path, data=data, secure=secure, **extra)
         if follow:
-            response = self._handle_redirects(response, **extra)
+            response = self._handle_redirects(response, data=data, **extra)
         return response
 
     def login(self, **credentials):
@@ -678,11 +678,12 @@ class Client(RequestFactory):
                 # 307 and 308 status codes need to preserve their request method
                 # across redirects.
                 request_method = response.request['REQUEST_METHOD'].lower()
-                method = getattr(self, request_method)
+                req_method = getattr(self, request_method)
             else:
-                method = self.get
+                req_method = self.get
+                extra['data'] = QueryDict(url.query)
 
-            response = method(path, QueryDict(url.query), follow=False, **extra)
+            response = req_method(path, follow=False, **extra)
             response.redirect_chain = redirect_chain
 
             if redirect_chain[-1] in redirect_chain[:-1]:
