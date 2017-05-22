@@ -99,6 +99,15 @@ def redirect_view(request):
     return HttpResponseRedirect('/get_view/' + query)
 
 
+def method_saving_redirect_view(request):
+    """
+    A view that redirects to /post_view/ using the 307 status code:
+    https://tools.ietf.org/html/rfc7231#section-6.4.7
+    """
+    status = 308 if request.GET.get('permanent', False) else 307
+    return HttpResponseRedirect('/post_view/', status=status)
+
+
 def view_with_secure(request):
     "A view that indicates if the request was secure"
     response = HttpResponse()

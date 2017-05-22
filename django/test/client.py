@@ -656,7 +656,7 @@ class Client(RequestFactory):
         Follow any redirects by requesting responses from the server using GET.
         """
         response.redirect_chain = []
-        while response.status_code in (301, 302, 303, 307):
+        while response.status_code in (301, 302, 303, 307, 308):
             response_url = response.url
             redirect_chain = response.redirect_chain
             redirect_chain.append((response_url, response.status_code))
@@ -674,7 +674,15 @@ class Client(RequestFactory):
             if not path.startswith('/'):
                 path = urljoin(response.request['PATH_INFO'], path)
 
-            response = self.get(path, QueryDict(url.query), follow=False, **extra)
+            if response.status_code in (307, 308):
+                # 307 and 308 status codes need to preserve their request method
+                # across redirects.
+                request_method = response.request['REQUEST_METHOD'].lower()
+                method = getattr(self, request_method)
+            else:
+                method = self.get
+
+            response = method(path, QueryDict(url.query), follow=False, **extra)
             response.redirect_chain = redirect_chain
 
             if redirect_chain[-1] in redirect_chain[:-1]:

@@ -222,6 +222,8 @@ Tests
 
 * Added threading support to :class:`~django.test.LiveServerTestCase`.
 
+* Added support for 307 and 308 redirects to :class:`django.test.Client`.
+
 URLs
 ~~~~
 

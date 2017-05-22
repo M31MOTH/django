@@ -12,6 +12,7 @@ urlpatterns = [
     url(r'^header_view/$', views.view_with_header),
     url(r'^raw_post_view/$', views.raw_post_view),
     url(r'^redirect_view/$', views.redirect_view),
+    url(r'^307_redirect_view/$', views.method_saving_redirect_view),
     url(r'^secure_view/$', views.view_with_secure),
     url(r'^permanent_redirect_view/$', RedirectView.as_view(url='/get_view/', permanent=True)),
     url(r'^temporary_redirect_view/$', RedirectView.as_view(url='/get_view/', permanent=False)),

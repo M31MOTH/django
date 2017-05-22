@@ -202,6 +202,24 @@ class ClientTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.request['PATH_INFO'], '/accounts/login/')
 
+    def test_follow_307_redirect(self):
+        """A URL with a 307 redirect"""
+        for method in ('get', 'post', 'head', 'options', 'put', 'patch', 'delete', 'trace'):
+            req_method = getattr(self.client, method)
+            response = req_method('/307_redirect_view/', follow=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.request['PATH_INFO'], '/post_view/')
+            self.assertEqual(response.request['REQUEST_METHOD'], method.upper())
+
+    def test_follow_308_redirect(self):
+        """A URL with a 307 redirect"""
+        for method in ('get', 'post', 'head', 'options', 'put', 'patch', 'delete', 'trace'):
+            req_method = getattr(self.client, method)
+            response = req_method('/307_redirect_view/?permanent=1', follow=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.request['PATH_INFO'], '/post_view/')
+            self.assertEqual(response.request['REQUEST_METHOD'], method.upper())
+
     def test_redirect_http(self):
         "GET a URL that redirects to an http URI"
         response = self.client.get('/http_redirect_view/', follow=True)
