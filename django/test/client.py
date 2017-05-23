@@ -651,7 +651,7 @@ class Client(RequestFactory):
             response._json = json.loads(response.content.decode(), **extra)
         return response._json
 
-    def _handle_redirects(self, response, **extra):
+    def _handle_redirects(self, response, data='', content_type='', **extra):
         """
         Follow any redirects by requesting responses from the server using GET.
         """
@@ -681,9 +681,10 @@ class Client(RequestFactory):
                 req_method = getattr(self, request_method)
             else:
                 req_method = self.get
-                extra['data'] = QueryDict(url.query)
+                data = QueryDict(url.query)
+                content_type = None
 
-            response = req_method(path, follow=False, **extra)
+            response = req_method(path, data=data, content_type=content_type, follow=False, **extra)
             response.redirect_chain = redirect_chain
 
             if redirect_chain[-1] in redirect_chain[:-1]:

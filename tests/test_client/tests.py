@@ -206,7 +206,7 @@ class ClientTest(TestCase):
         """A URL with a 307 redirect"""
         for method in ('get', 'post', 'head', 'options', 'put', 'patch', 'delete', 'trace'):
             req_method = getattr(self.client, method)
-            response = req_method('/307_redirect_view/', data={'value': 'test'}, follow=True)
+            response = req_method('/redirect_view_307/', data={'value': 'test'}, follow=True)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.request['PATH_INFO'], '/post_view/')
             self.assertEqual(response.request['REQUEST_METHOD'], method.upper())
@@ -215,28 +215,28 @@ class ClientTest(TestCase):
         """A URL with a 307 redirect"""
         for method in ('get', 'post', 'head', 'options', 'put', 'patch', 'delete', 'trace'):
             req_method = getattr(self.client, method)
-            response = req_method('/307_redirect_view/?permanent=1', data={'value': 'test'}, follow=True)
+            response = req_method('/redirect_view_307/?permanent=1', data={'value': 'test'}, follow=True)
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.request['PATH_INFO'], '/post_view/')
             self.assertEqual(response.request['REQUEST_METHOD'], method.upper())
 
     def test_follow_307_and_308_preserves_post_data(self):
-        response = self.client.post('/307_redirect_view/', data={'value': 'test'}, follow=True)
+        response = self.client.post('/redirect_view_307/', data={'value': 'test'}, follow=True)
         self.assertContains(response, 'test is the value')
-        response = self.client.post('/307_redirect_view/?permanent=1', data={'value': 'test'}, follow=True)
+        response = self.client.post('/redirect_view_307/?permanent=1', data={'value': 'test'}, follow=True)
         self.assertContains(response, 'test is the value')
 
     def test_follow_307_and_308_preserves_put_body(self):
-        response = self.client.put('/307_redirect_view/?to=/put_view/', data='a=b', follow=True)
+        response = self.client.put('/redirect_view_307/?to=/put_view/', data='a=b', follow=True)
         self.assertContains(response, 'a=b is the body')
-        response = self.client.put('/307_redirect_view/?to=/put_view/&permanent=1', data='a=b', follow=True)
+        response = self.client.put('/redirect_view_307/?to=/put_view/&permanent=1', data='a=b', follow=True)
         self.assertContains(response, 'a=b is the body')
 
     def test_follow_307_and_308_preserves_get_params(self):
-        response = self.client.get('/307_redirect_view/', data={'var': 30, 'to': '/get_view/'}, follow=True)
+        response = self.client.get('/redirect_view_307/', data={'var': 30, 'to': '/get_view/'}, follow=True)
         self.assertContains(response, '30 is the value')
-        response = self.client.get('/307_redirect_view/',
-                                   data={'var': 30,  'to': '/get_view/', 'permanent': '1'}, follow=True)
+        response = self.client.get('/redirect_view_307/',
+                                   data={'var': 30, 'to': '/get_view/', 'permanent': '1'}, follow=True)
         self.assertContains(response, '30 is the value')
 
     def test_redirect_http(self):
