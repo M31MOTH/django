@@ -320,10 +320,7 @@ class ModelPaginationTests(TestCase):
     def test_paginating_unordered_queryset_raises_warning(self):
         msg = (
             "Pagination may yield inconsistent results with an unordered "
-            "object_list: <QuerySet [<Article: Article 1>, "
-            "<Article: Article 2>, <Article: Article 3>, <Article: Article 4>, "
-            "<Article: Article 5>, <Article: Article 6>, <Article: Article 7>, "
-            "<Article: Article 8>, <Article: Article 9>]>"
+            "object_list model: <class 'pagination.models.Article'>"
         )
         with self.assertRaisesMessage(UnorderedObjectListWarning, msg):
             Paginator(Article.objects.all(), 5)
