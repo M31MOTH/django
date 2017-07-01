@@ -1,0 +1,12 @@
+image:
+  - Visual Studio 2015
+  - Visual Studio 2017
+
+Configuration:
+  - python3.4
+  - python3.5
+  - python3.6
+
+environment:
+  - db: mysql
+  - db: postgresql

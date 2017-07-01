@@ -50,10 +50,12 @@ install:
     - if [ ${DB} == "mysql" ]; then
         sudo service mysql start || true;
         travis_retry pip install mysqlclient --upgrade;
+        mysql_tzinfo_to_sql /usr/share/zoneinfo | mysql -u root mysql;
       fi
 
     - if [ ${DB} == "mariadb" ]; then
         sudo service mariadb start ${DB_VERSION} || true;
+        travis_retry pip install mysqlclient --upgrade;
       fi
 
     - if [ -v DB_EXTENSION ]; then
@@ -68,7 +70,11 @@ script:
     - travis_retry python setup.py develop
     - cd tests/
     - echo settings=$DJANGO_SETTINGS_MODULE
-    - PYTHONUNBUFFERED=1 python runtests.py --parallel=2
+    - df -h
+    - PYTHONUNBUFFERED=1 python runtests.py --parallel=4
+
+after_failure:
+    - df -h
 
 notifications:
   email: false
