@@ -1,5 +1,4 @@
 import mimetypes
-import os
 from email import (
     charset as Charset, encoders as Encoders, generator, message_from_string,
 )
@@ -13,6 +12,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.utils import formatdate, getaddresses, make_msgid, parseaddr
 from io import BytesIO, StringIO
+from pathlib import Path
 
 from django.conf import settings
 from django.core.mail.utils import DNS_NAME
@@ -340,11 +340,11 @@ class EmailMessage:
         as UTF-8. If that fails, set the mimetype to
         DEFAULT_ATTACHMENT_MIME_TYPE and don't decode the content.
         """
-        filename = os.path.basename(path)
+        path = Path(path)
 
-        with open(path, 'rb') as file:
-            content = file.read()
-            self.attach(filename, content, mimetype)
+        with path.open('rb') as fd:
+            content = fd.read()
+            self.attach(path.name, content, mimetype)
 
     def _create_message(self, msg):
         return self._create_attachments(msg)
