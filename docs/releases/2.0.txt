@@ -160,7 +160,8 @@ Database backends
 Email
 ~~~~~
 
-* ...
+* The :class:`~django.core.mail.backends.filebased.EmailBackend` ``file_path``
+  attribute is now a ``pathlib.Path`` instance
 
 File Storage
 ~~~~~~~~~~~~
