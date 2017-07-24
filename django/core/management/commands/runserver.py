@@ -102,14 +102,14 @@ class Command(BaseCommand):
         use_reloader = options['use_reloader']
 
         if use_reloader:
-            autoreload.main(self.inner_run, None, options)
+            autoreload.run_with_reloader(self.inner_run, **options)
         else:
             self.inner_run(None, **options)
 
     def inner_run(self, *args, **options):
         # If an exception was silenced in ManagementUtility.execute in order
         # to be raised in the child process, raise it now.
-        autoreload.raise_last_exception()
+        # autoreload.raise_last_exception()
 
         threading = options['use_threading']
         # 'shutdown_message' is a stealth option.

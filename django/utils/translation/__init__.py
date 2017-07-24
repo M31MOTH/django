@@ -2,9 +2,14 @@
 Internationalization support.
 """
 import re
+import threading
 import warnings
 from contextlib import ContextDecorator, suppress
+from pathlib import Path
 
+from django.apps import apps
+from django.dispatch import receiver
+from django.utils.autoreload import autoreload_started, file_changed
 from django.utils.deprecation import RemovedInDjango21Warning
 from django.utils.functional import lazy
 
@@ -23,6 +28,39 @@ __all__ = [
 ]
 
 LANGUAGE_SESSION_KEY = '_language'
+
+
+@receiver(autoreload_started, dispatch_uid='translation_autoreload_started')
+def autoreload_started(sender, **kwargs):
+    from django.conf import settings
+    from django.conf import locale
+
+    if settings.USE_I18N:
+        locale_dir = Path(locale.__file__).parent
+        directories = [
+            locale_dir,
+            Path('locale'),
+            *settings.LOCALE_PATHS
+        ]
+        directories.extend(Path(config.path) / 'locale' for config in apps.get_app_configs())
+        directories.extend(Path(p) for p in settings.LOCALE_PATHS)
+
+        for path in directories:
+            absolute_path = path.absolute()
+            sender.watch(absolute_path, '**/*.mo')
+
+
+@receiver(file_changed, dispatch_uid='translation_file_changed')
+def translation_file_changed(sender, file_path, **kwargs):
+    if file_path.suffix == '.mo':
+        import gettext
+        from django.utils.translation import trans_real
+        gettext._translations = {}
+        trans_real._translations = {}
+        trans_real._default = None
+        trans_real._active = threading.local()
+
+        return True
 
 
 class TranslatorCommentWarning(SyntaxWarning):
