@@ -23,12 +23,7 @@ def iter_all_python_module_files():
         if not module or not filename:
             continue
 
-        path = pathlib.Path(filename)
-
-        if path.suffix in {'.pyc', '.pyo'}:
-            yield path.with_suffix('.py')
-
-        yield path.absolute()
+        yield pathlib.Path(filename).absolute()
 
 
 class BaseReloader:
@@ -36,7 +31,7 @@ class BaseReloader:
         self.extra_files = set()
         self.extra_directories = set()
 
-    def watch(self, path, glob):
+    def watch(self, path, glob=None):
         path = Path(path)
 
         if glob:
@@ -51,33 +46,38 @@ class BaseReloader:
         for directory, pattern in self.extra_directories:
             yield from directory.glob(pattern)
 
-    def run(self):
+    def wait_for_app_ready(self):
         while not apps.ready:
             time.sleep(0.1)
 
         autoreload_started.send(sender=self)
-        self.run_loop()
 
-    def run_loop(self):
-        pass
+    def run(self):
+        for path in self.yield_changes():
+            results = file_changed.send(sender=self, file_path=path)
+            if not any(res[1] for res in results):
+                self.trigger_reload(path)
 
-    def get_child_arguments(self):
+    def yield_changes(self):
+        yield from []
+
+    def get_child_arguments(self, argv, warnings=None):
         """
         Returns the executable. This contains a workaround for windows
         if the executable is incorrectly reported to not have the .exe
         extension which can cause bugs on reloading.
         """
-        py_script = Path(sys.argv[0]).absolute()
+        py_script = Path(argv[0]).absolute()
         py_script_exe_suffix = py_script.with_suffix('.exe')
         if os.name == 'nt' and not py_script.exists() and py_script_exe_suffix.exists():
             py_script = py_script_exe_suffix
 
-        return [str(py_script)] + ['-W%s' % o for o in sys.warnoptions] + sys.argv[1:]
+        return [str(py_script)] + ['-W%s' % o for o in warnings or []] + argv[1:]
 
     def restart_with_reloader(self):
         new_environ = os.environ.copy()
         new_environ[DJANGO_AUTORELOAD_ENV] = '1'
-        args = self.get_child_arguments()
+        args = self.get_child_arguments(sys.argv, sys.warnoptions)
 
         while True:
             exit_code = subprocess.call(args, env=new_environ, close_fds=False)
@@ -91,24 +91,23 @@ class BaseReloader:
 
 
 class StatReloader(BaseReloader):
-    def run_loop(self):
+    SLEEP_DURATION = 1
+
+    def yield_changes(self):
         file_times = {}
 
         while True:
             for path, mtime in self.snapshot():
                 previous_time = file_times.get(path)
+                changed = previous_time != mtime
 
-                if previous_time is None:
-                    file_times[path] = mtime
-
-                elif previous_time != mtime:
-                    results = file_changed.send(sender=self, file_path=path)
-                    if not any(res[1] for res in results):
-                        self.trigger_reload(path)
+                if changed:
+                    if previous_time is not None:
+                        yield path
 
                     file_times[path] = mtime
 
-            time.sleep(1)
+            time.sleep(self.SLEEP_DURATION)
 
     def snapshot(self):
         for file in self.watched_files():
@@ -130,7 +129,9 @@ def run_with_reloader(main_func, *args, **kwargs):
             thread.setDaemon(True)
             thread.start()
 
-            StatReloader().run()
+            reloader = StatReloader()
+            reloader.wait_for_app_ready()
+            reloader.run()
         else:
             exit_code = StatReloader().restart_with_reloader()
             sys.exit(exit_code)

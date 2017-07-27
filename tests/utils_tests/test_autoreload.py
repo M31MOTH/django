@@ -1,154 +1,115 @@
-import gettext
+import contextlib
 import os
 import shutil
+import sys
 import tempfile
 from importlib import import_module
-from unittest import mock
+from pathlib import Path
+from types import ModuleType
+from unittest import skipUnless
 
-import _thread
-
-from django import conf
-from django.contrib import admin
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase
 from django.test.utils import extend_sys_path
 from django.utils import autoreload
-from django.utils.translation import trans_real
-
-LOCALE_PATH = os.path.join(os.path.dirname(__file__), 'locale')
 
 
-class TestFilenameGenerator(SimpleTestCase):
-    def test_paths_are_native_strings(self):
-        for filename in autoreload.gen_filenames():
-            self.assertIsInstance(filename, str)
-
-    def test_only_new_files(self):
-        """
-        When calling a second time gen_filenames with only_new = True, only
-        files from newly loaded modules should be given.
-        """
-        dirname = tempfile.mkdtemp()
-        filename = os.path.join(dirname, 'test_only_new_module.py')
-        self.addCleanup(shutil.rmtree, dirname)
-        with open(filename, 'w'):
-            pass
-
-        # Test uncached access
-        self.clear_autoreload_caches()
-        filenames = set(autoreload.gen_filenames(only_new=True))
-        filenames_reference = set(autoreload.gen_filenames())
-        self.assertEqual(filenames, filenames_reference)
-
-        # Test cached access: no changes
-        filenames = set(autoreload.gen_filenames(only_new=True))
-        self.assertEqual(filenames, set())
-
-        # Test cached access: add a module
-        with extend_sys_path(dirname):
-            import_module('test_only_new_module')
-        filenames = set(autoreload.gen_filenames(only_new=True))
-        self.assertEqual(filenames, {filename})
-
-    def test_deleted_removed(self):
-        """
-        When a file is deleted, gen_filenames() no longer returns it.
-        """
-        dirname = tempfile.mkdtemp()
-        filename = os.path.join(dirname, 'test_deleted_removed_module.py')
-        self.addCleanup(shutil.rmtree, dirname)
-        with open(filename, 'w'):
-            pass
-
-        with extend_sys_path(dirname):
-            import_module('test_deleted_removed_module')
-        self.assertFileFound(filename)
-
-        os.unlink(filename)
-        self.assertFileNotFound(filename)
-
-    def test_check_errors(self):
-        """
-        When a file containing an error is imported in a function wrapped by
-        check_errors(), gen_filenames() returns it.
-        """
-        dirname = tempfile.mkdtemp()
-        filename = os.path.join(dirname, 'test_syntax_error.py')
-        self.addCleanup(shutil.rmtree, dirname)
-        with open(filename, 'w') as f:
-            f.write("Ceci n'est pas du Python.")
-
-        with extend_sys_path(dirname):
-            with self.assertRaises(SyntaxError):
-                autoreload.check_errors(import_module)('test_syntax_error')
-        self.assertFileFound(filename)
-
-    def test_check_errors_only_new(self):
-        """
-        When a file containing an error is imported in a function wrapped by
-        check_errors(), gen_filenames(only_new=True) returns it.
-        """
-        dirname = tempfile.mkdtemp()
-        filename = os.path.join(dirname, 'test_syntax_error.py')
-        self.addCleanup(shutil.rmtree, dirname)
-        with open(filename, 'w') as f:
-            f.write("Ceci n'est pas du Python.")
-
-        with extend_sys_path(dirname):
-            with self.assertRaises(SyntaxError):
-                autoreload.check_errors(import_module)('test_syntax_error')
-        self.assertFileFoundOnlyNew(filename)
-
-    def test_check_errors_catches_all_exceptions(self):
-        """
-        Since Python may raise arbitrary exceptions when importing code,
-        check_errors() must catch Exception, not just some subclasses.
-        """
-        dirname = tempfile.mkdtemp()
-        filename = os.path.join(dirname, 'test_exception.py')
-        self.addCleanup(shutil.rmtree, dirname)
-        with open(filename, 'w') as f:
-            f.write("raise Exception")
-
-        with extend_sys_path(dirname):
-            with self.assertRaises(Exception):
-                autoreload.check_errors(import_module)('test_exception')
-        self.assertFileFound(filename)
+@contextlib.contextmanager
+def change_dir(path):
+    old_cwd = Path.cwd()
+    os.chdir(str(path))
+    try:
+        yield path
+    finally:
+        os.chdir(str(old_cwd))
 
 
-class CleanFilesTests(SimpleTestCase):
-    TEST_MAP = {
-        # description: (input_file_list, expected_returned_file_list)
-        'falsies': ([None, False], []),
-        'pycs': (['myfile.pyc'], ['myfile.py']),
-        'pyos': (['myfile.pyo'], ['myfile.py']),
-        '$py.class': (['myclass$py.class'], ['myclass.py']),
-        'combined': (
-            [None, 'file1.pyo', 'file2.pyc', 'myclass$py.class'],
-            ['file1.py', 'file2.py', 'myclass.py'],
-        )
-    }
+@contextlib.contextmanager
+def add_module(module):
+    sys.modules[module.__name__] = module
+    try:
+        yield module
+    finally:
+        del sys.modules[module.__name__]
 
-    def _run_tests(self, mock_files_exist=True):
-        with mock.patch('django.utils.autoreload.os.path.exists', return_value=mock_files_exist):
-            for description, values in self.TEST_MAP.items():
-                filenames, expected_returned_filenames = values
-                self.assertEqual(
-                    autoreload.clean_files(filenames),
-                    expected_returned_filenames if mock_files_exist else [],
-                    msg='{} failed for input file list: {}; returned file list: {}'.format(
-                        description, filenames, expected_returned_filenames
-                    ),
-                )
 
-    def test_files_exist(self):
-        """
-        If the file exists, any compiled files (pyc, pyo, $py.class) are
-        transformed as their source files.
-        """
-        self._run_tests()
+class TestStatReloader(SimpleTestCase):
+    def setUp(self):
+        temp_dir_path = tempfile.mkdtemp()
+        self.temp_dir = Path(temp_dir_path)
+        self.reloader = autoreload.StatReloader()
+        self.addCleanup(shutil.rmtree, temp_dir_path)
 
-    def test_files_do_not_exist(self):
-        """
-        If the files don't exist, they aren't in the returned file list.
-        """
-        self._run_tests(mock_files_exist=False)
+    def test_snapshot_stats_file(self):
+        new_file = self.temp_dir / 'temp.txt'
+        new_file.touch()
+        self.reloader.watch(new_file)
+        mtime = new_file.stat().st_mtime
+
+        snapshot = dict(self.reloader.snapshot())
+        self.assertEqual(snapshot[new_file], mtime)
+
+
+class TestIterModules(SimpleTestCase):
+    def setUp(self):
+        temp_dir_path = tempfile.mkdtemp()
+        self.temp_dir = Path(temp_dir_path)
+        self.addCleanup(shutil.rmtree, temp_dir_path)
+
+    def test_contains_imported_modules(self):
+        with extend_sys_path(str(self.temp_dir)):
+            py_file = self.temp_dir / 'test_new_module.py'
+            py_file.touch()
+            import_module('test_new_module')
+
+        module_files = list(autoreload.iter_all_python_module_files())
+        self.assertIn(py_file, module_files)
+
+    def test_does_not_rename_pyc(self):
+        module = ModuleType('test-module')
+        module.__file__ = str(self.temp_dir / 'test.pyc')
+
+        with add_module(module):
+            module_files = list(autoreload.iter_all_python_module_files())
+            self.assertIn(self.temp_dir / 'test.pyc', module_files)
+
+    def test_does_not_rename_pyo(self):
+        module = ModuleType('test-module')
+        module.__file__ = str(self.temp_dir / 'test.pyo')
+
+        with add_module(module):
+            module_files = list(autoreload.iter_all_python_module_files())
+            self.assertIn(self.temp_dir / 'test.pyo', module_files)
+
+
+class TestGetChildArguments(SimpleTestCase):
+    def setUp(self):
+        self.reloader = autoreload.BaseReloader()
+
+    @skipUnless(os.name == 'nt', 'Only relevant on Windows')
+    def test_child_arguments_nt_exe(self):
+        temp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, str(temp))
+
+        script_path = temp / 'my_script'
+        script_exe_path = temp / 'my_script.exe'
+        script_exe_path.touch()
+
+        args = self.reloader.get_child_arguments([str(script_path)])
+        self.assertSequenceEqual(args, [str(script_exe_path)])
+
+    def test_child_arguments_absolute(self):
+        script = Path('some_script.py')
+        args = self.reloader.get_child_arguments([str(script)])
+        self.assertSequenceEqual(args, [str(script.absolute())])
+
+    def test_child_arguments_warnings(self):
+        script = Path('some_script.py')
+        args = self.reloader.get_child_arguments([str(script)], warnings=['abc', 'def'])
+        expected = [str(script.absolute()), '-Wabc', '-Wdef']
+        self.assertSequenceEqual(args, expected)
+
+    def test_child_arguments_appends_args(self):
+        script = Path('some_script.py')
+        args = self.reloader.get_child_arguments([str(script), 'abc', 'def'])
+        expected = [str(script.absolute()), 'abc', 'def']
+        self.assertSequenceEqual(args, expected)
