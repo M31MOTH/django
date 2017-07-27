@@ -36,11 +36,9 @@ def autoreload_started(sender, **kwargs):
     from django.conf import locale
 
     if settings.USE_I18N:
-        locale_dir = Path(locale.__file__).parent
         directories = [
-            locale_dir,
+            Path(locale.__file__).parent,
             Path('locale'),
-            *settings.LOCALE_PATHS
         ]
         directories.extend(Path(config.path) / 'locale' for config in apps.get_app_configs())
         directories.extend(Path(p) for p in settings.LOCALE_PATHS)
