@@ -11,7 +11,7 @@ from django.apps import apps
 from django.dispatch import Signal
 
 autoreload_started = Signal()
-file_changed = Signal(providing_args=['path', 'kind'])
+file_changed = Signal(providing_args=['path'])
 
 DJANGO_AUTORELOAD_ENV = 'RUN_MAIN'
 
@@ -38,13 +38,6 @@ class BaseReloader:
             self.extra_directories.add((path, glob))
         else:
             self.extra_files.add(path.absolute())
-
-    def watched_files(self):
-        yield from iter_all_python_module_files()
-        yield from self.extra_files
-
-        for directory, pattern in self.extra_directories:
-            yield from directory.glob(pattern)
 
     def wait_for_app_ready(self):
         while not apps.ready:
@@ -85,13 +78,20 @@ class BaseReloader:
             if exit_code != 3:
                 return exit_code
 
-    def trigger_reload(self, filename, kind='changed'):
-        print('{0} {1}, reloading'.format(filename, kind))
+    def trigger_reload(self, filename):
+        print('{0} changed, reloading'.format(filename))
         sys.exit(3)
 
 
 class StatReloader(BaseReloader):
     SLEEP_DURATION = 1
+
+    def watched_files(self):
+        yield from iter_all_python_module_files()
+        yield from self.extra_files
+
+        for directory, pattern in self.extra_directories:
+            yield from directory.glob(pattern)
 
     def yield_changes(self):
         file_times = {}
