@@ -476,12 +476,37 @@ class Query:
         """
         Perform a COUNT() query using the current filter constraints.
         """
-        obj = self.clone()
+        obj = self.remove_unused_annotations()
         obj.add_annotation(Count('*'), alias='__count', is_summary=True)
         number = obj.get_aggregation(using, ['__count'])['__count']
         if number is None:
             number = 0
         return number
+
+    def get_dependents(self, expr):
+        if isinstance(expr, Col):
+            yield expr.alias
+
+        for inner in expr.get_source_expressions():
+            yield from self.get_dependents(inner)
+
+    def remove_unused_annotations(self):
+        obj = self.clone()
+        dependents = {
+            key: list(self.get_dependents(value))
+            for key, value in obj.annotations.items()
+        }
+
+        query_dependent_fields = list(obj.get_dependents(obj.where)) + list(obj.order_by)
+
+        unused_aliases = set(dependents.keys()) - set(query_dependent_fields) - set(dependent for value in dependents.values() for dependent in value)
+
+        for alias in unused_aliases:
+            print(str(obj))
+            if alias in obj.annotations:
+                del obj.annotations[alias]
+
+        return obj
 
     def has_filters(self):
         return self.where

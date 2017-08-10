@@ -666,6 +666,9 @@ class Classroom(models.Model):
     school = models.ForeignKey(School, models.CASCADE)
     students = models.ManyToManyField(Student, related_name='classroom')
 
+    class Meta:
+        ordering = ('name',)
+
 
 class Teacher(models.Model):
     schools = models.ManyToManyField(School)
