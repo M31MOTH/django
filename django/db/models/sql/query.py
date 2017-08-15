@@ -501,11 +501,11 @@ class Query:
 
         unused_aliases = set(dependents.keys()) - set(query_dependent_fields) - set(dependent for value in dependents.values() for dependent in value)
 
-        for alias in unused_aliases:
-            print(str(obj))
-            if alias in obj.annotations:
-                del obj.annotations[alias]
-
+        for col in unused_aliases:
+            if col in obj.annotations:
+                del obj.annotations[col]
+                for dep in dependents[col]:
+                    obj.unref_alias(dep)
         return obj
 
     def has_filters(self):

@@ -14,11 +14,23 @@ class TestSimplify(TestCase):
         cls.student2 = Student.objects.create(school=cls.school)
         cls.classroom.students.add(cls.student1, cls.student2)
 
-    def test_reduce(self):
+    def test_reduce_with_no_dependents(self):
         with CaptureQueriesContext(connection) as captured_queries:
-            Classroom.objects\
-                .annotate(Max('students'), a=Max('students'))\
-                .filter(a__gte=1)\
+            Classroom.objects.count()
+
+            Classroom.objects \
+                .annotate(Max('students')) \
                 .count()
 
-        self.assertNotIn('students__max', captured_queries[0]['sql'])
+        self.assertEqual(captured_queries[0]['sql'], captured_queries[1]['sql'])
+
+    def test_reduce_with_dependents(self):
+        with CaptureQueriesContext(connection) as captured_queries:
+            Classroom.objects.count()
+
+            Classroom.objects \
+                .annotate(abc=Max('students'), xyz=Max('students')) \
+                .filter(xyz__gt=1)\
+                .count()
+
+        self.assertEqual(captured_queries[0]['sql'], captured_queries[1]['sql'])
