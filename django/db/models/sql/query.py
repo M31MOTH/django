@@ -476,37 +476,46 @@ class Query:
         """
         Perform a COUNT() query using the current filter constraints.
         """
-        obj = self.remove_unused_annotations()
+        obj = self.clone()
+        obj.remove_unused_annotations()
         obj.add_annotation(Count('*'), alias='__count', is_summary=True)
         number = obj.get_aggregation(using, ['__count'])['__count']
         if number is None:
             number = 0
         return number
 
-    def get_dependents(self, expr):
-        if isinstance(expr, Col):
-            yield expr.alias
+    def remove_annotation(self, name):
+        """
+        Remove a named annotation from the query.
+        This finds all columns the annotation references and decrements the
+        column reference count.
+        """
+        annotation = self.annotations.pop(name)
+        field_references = [expr for expr in annotation.flatten() if isinstance(expr, Col)]
 
-        for inner in expr.get_source_expressions():
-            yield from self.get_dependents(inner)
+        for reference in field_references:
+            alias = self.alias_map[reference.alias]
+
+            while isinstance(alias, Join):
+                self.unref_alias(alias.table_alias)
+
+                alias = self.alias_map[alias.parent_alias]
 
     def remove_unused_annotations(self):
-        obj = self.clone()
-        dependents = {
-            key: list(self.get_dependents(value))
-            for key, value in obj.annotations.items()
-        }
+        """
+        Attempt to optimize the query by removing any annotations that are not used
+        in ordering or filtering.
 
-        query_dependent_fields = list(obj.get_dependents(obj.where)) + list(obj.order_by)
+        Currently this method only removes annotations from queries with no filters
+        """
+        if not self.annotations:
+            return
 
-        unused_aliases = set(dependents.keys()) - set(query_dependent_fields) - set(dependent for value in dependents.values() for dependent in value)
+        order_by_annotate = any(order in self.annotations for order in self.order_by)
 
-        for col in unused_aliases:
-            if col in obj.annotations:
-                del obj.annotations[col]
-                for dep in dependents[col]:
-                    obj.unref_alias(dep)
-        return obj
+        if not self.has_filters() and not order_by_annotate:
+            for annotation in list(self.annotations.keys()):
+                self.remove_annotation(annotation)
 
     def has_filters(self):
         return self.where

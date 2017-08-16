@@ -1,11 +1,21 @@
-from django.db.models import Count, Max
+from django.db import connection
+from django.db.models import Count
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
-from .models import School, Classroom, Student
-from django.db import connection
+
+from .models import Classroom, School, Student
+
+QUERIES = [
+    (
+        Classroom.objects.annotate(one=Count('students')),
+        Classroom.objects.all()
+    ),
+]
 
 
 class TestSimplify(TestCase):
+    maxDiff = None
+
     @classmethod
     def setUpTestData(cls):
         cls.school = School.objects.create()
@@ -14,23 +24,10 @@ class TestSimplify(TestCase):
         cls.student2 = Student.objects.create(school=cls.school)
         cls.classroom.students.add(cls.student1, cls.student2)
 
-    def test_reduce_with_no_dependents(self):
-        with CaptureQueriesContext(connection) as captured_queries:
-            Classroom.objects.count()
+    def test_reduce_query_count(self):
+        for one, two in QUERIES:
+            with self.subTest(one=one, two=two):
+                with CaptureQueriesContext(connection) as captured_queries:
+                    self.assertEqual(one.count(), two.count())
 
-            Classroom.objects \
-                .annotate(Max('students')) \
-                .count()
-
-        self.assertEqual(captured_queries[0]['sql'], captured_queries[1]['sql'])
-
-    def test_reduce_with_dependents(self):
-        with CaptureQueriesContext(connection) as captured_queries:
-            Classroom.objects.count()
-
-            Classroom.objects \
-                .annotate(abc=Max('students'), xyz=Max('students')) \
-                .filter(xyz__gt=1)\
-                .count()
-
-        self.assertEqual(captured_queries[0]['sql'], captured_queries[1]['sql'])
+                self.assertEqual(captured_queries[0]['sql'], captured_queries[1]['sql'])
