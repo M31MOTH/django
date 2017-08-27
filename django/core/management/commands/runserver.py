@@ -107,10 +107,6 @@ class Command(BaseCommand):
             self.inner_run(None, **options)
 
     def inner_run(self, *args, **options):
-        # If an exception was silenced in ManagementUtility.execute in order
-        # to be raised in the child process, raise it now.
-        # autoreload.raise_last_exception()
-
         threading = options['use_threading']
         # 'shutdown_message' is a stealth option.
         shutdown_message = options.get('shutdown_message', '')

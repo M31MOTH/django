@@ -1,19 +1,102 @@
 import contextlib
 import os
 import pathlib
-import subprocess
+import queue
+import signal
 import sys
 import threading
 import time
+from collections import namedtuple
+from multiprocessing import Event, Process, Queue, set_start_method
 from pathlib import Path
 
 from django.apps import apps
 from django.dispatch import Signal
 
+try:
+    import termios
+except ImportError:
+    termios = None
+
 autoreload_started = Signal()
 file_changed = Signal(providing_args=['path'])
 
+ResetWatchedFiles = namedtuple('ResetWatchedFiles', 'paths')
+
 DJANGO_AUTORELOAD_ENV = 'RUN_MAIN'
+
+
+def ensure_echo_on():
+    if termios:
+        fd = sys.stdin
+        if fd.isatty():
+            attr_list = termios.tcgetattr(fd)
+            if not attr_list[3] & termios.ECHO:
+                attr_list[3] |= termios.ECHO
+                if hasattr(signal, 'SIGTTOU'):
+                    old_handler = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+                else:
+                    old_handler = None
+                termios.tcsetattr(fd, termios.TCSANOW, attr_list)
+                if old_handler is not None:
+                    signal.signal(signal.SIGTTOU, old_handler)
+
+
+def trigger_reloader_started(watch_queue):
+    def watch_function(path, glob=None):
+        watch_queue.put_nowait([(path, glob)])
+
+    wait_for_app_ready()
+
+    all_module_files = set(iter_all_python_module_files())
+
+    watch_queue.put_nowait(ResetWatchedFiles(all_module_files))
+
+    autoreload_started.send(watch_function)
+
+    while True:
+        time.sleep(0.5)
+        new_modules = set(iter_all_python_module_files())
+        diff = new_modules - all_module_files
+        if diff:
+            watch_queue.put_nowait([(p, None) for p in diff])
+            all_module_files = new_modules
+
+
+def read_change_queue(change_queue, manage_py_thread):
+    apps_failed = wait_for_app_ready(manage_py_thread)
+    if apps_failed:
+        sys.exit(1)
+
+    while True:
+        change = change_queue.get()
+        # Not sure if this sender argument is correct...
+        results = file_changed.send(sender=Reloader, file_path=change)
+        if not any(res[1] for res in results):
+            sys.exit(3)
+
+
+def run_manage_py(argv):
+    os.environ[DJANGO_AUTORELOAD_ENV] = '1'
+    sys.argv = argv
+
+    with open(sys.argv[0], 'r') as fd:
+        code_block = compile(fd.read(), sys.argv[0], 'exec')
+        exec(code_block, {'__name__': '__main__'})
+
+
+def execute_child(argv, watch_queue, change_queue):
+    signal.signal(signal.SIGTERM, lambda *args: sys.exit(0))
+    ensure_echo_on()
+
+    reload_started_thread = threading.Thread(target=trigger_reloader_started, args=(watch_queue,), daemon=True)
+    reload_started_thread.start()
+
+    manage_py_thread = threading.Thread(target=run_manage_py, args=(argv,), daemon=True)
+    manage_py_thread.start()
+
+    with contextlib.suppress(KeyboardInterrupt):
+        read_change_queue(change_queue, manage_py_thread)
 
 
 def iter_all_python_module_files():
@@ -26,72 +109,109 @@ def iter_all_python_module_files():
         yield pathlib.Path(filename).absolute()
 
 
-class BaseReloader:
+def wait_for_app_ready(conditional_thread=None):
+    # This could be improved if there was some kind of `app_ready` signal
+    while not apps.ready:
+        time.sleep(0.1)
+        if conditional_thread and not conditional_thread.is_alive():
+            return True
+
+
+class Reloader:
     def __init__(self):
-        self.extra_files = set()
-        self.extra_directories = set()
+        self.watch_queue = Queue()
+        self.change_queue = Queue()
+        self.started_event = Event()
+
+        self._watched_files = set()
+        self.child_process = None
+
+    @property
+    def child_exited_due_to_reloader(self):
+        return self.child_process.exitcode == 3
+
+    @property
+    def child_process_exited(self):
+        return self.child_process.exitcode is not None
+
+    def start_child_process(self):
+        if self.child_process and self.child_process.is_alive():
+            raise RuntimeError('Reloader already has an active child process')
+
+        threading.Thread(target=self._child_process_loop, daemon=True).start()
+
+    def _child_process_loop(self):
+        kwargs = {'watch_queue': self.watch_queue,
+                  'change_queue': self.change_queue}
+
+        while True:
+            self.flush_change_queue()
+
+            self.child_process = Process(target=execute_child, args=(sys.argv,), kwargs=kwargs)
+            self.child_process.start()
+            self.child_process.join()
+
+            if not self.child_exited_due_to_reloader:
+                return
+
+    def watched_files(self):
+        for path, glob in self._watched_files:
+            if glob:
+                yield from path.glob(glob)
+            else:
+                yield path
 
     def watch(self, path, glob=None):
         path = Path(path)
+        self._watched_files.add((path, glob))
 
-        if glob:
-            self.extra_directories.add((path, glob))
-        else:
-            self.extra_files.add(path.absolute())
+    def read_watch_queue(self):
+        while True:
+            item = self.watch_queue.get()
+            if isinstance(item, ResetWatchedFiles):
+                self._watched_files = set()
+                for path in item.paths:
+                    self.watch(path)
+            elif isinstance(item, list):
+                for path, glob in item:
+                    self.watch(path, glob)
+            else:
+                raise RuntimeError('Unknown watch_queue value: {0} {1}'.format(type(item), item))
 
-    def wait_for_app_ready(self):
-        while not apps.ready:
-            time.sleep(0.1)
+    def flush_change_queue(self):
+        while True:
+            try:
+                self.change_queue.get_nowait()
+            except queue.Empty:
+                return
 
-        autoreload_started.send(sender=self)
+    def watch_for_changes(self):
+        for change in self.yield_changes():
+            print(change)
+            if self.child_process:
+                if self.child_process_exited and not self.child_exited_due_to_reloader:
+                    self.start_child_process()
+                else:
+                    self.change_queue.put_nowait(change)
 
     def run(self):
-        for path in self.yield_changes():
-            results = file_changed.send(sender=self, file_path=path)
-            if not any(res[1] for res in results):
-                self.trigger_reload(path)
+        self.start_child_process()
 
-    def yield_changes(self):
-        yield from []
+        watch_queue_thread = threading.Thread(target=self.read_watch_queue, daemon=True)
+        watch_queue_thread.start()
 
-    def get_child_arguments(self, argv, warnings=None):
-        """
-        Returns the executable. This contains a workaround for windows
-        if the executable is incorrectly reported to not have the .exe
-        extension which can cause bugs on reloading.
-        """
-        py_script = Path(argv[0]).absolute()
-        py_script_exe_suffix = py_script.with_suffix('.exe')
-        if os.name == 'nt' and not py_script.exists() and py_script_exe_suffix.exists():
-            py_script = py_script_exe_suffix
-
-        return [str(py_script)] + ['-W%s' % o for o in warnings or []] + argv[1:]
-
-    def restart_with_reloader(self):
-        new_environ = os.environ.copy()
-        new_environ[DJANGO_AUTORELOAD_ENV] = '1'
-        args = self.get_child_arguments(sys.argv, sys.warnoptions)
+        for module in iter_all_python_module_files():
+            self.watch(module)
 
         while True:
-            exit_code = subprocess.call(args, env=new_environ, close_fds=False)
+            self.watch_for_changes()
 
-            if exit_code != 3:
-                return exit_code
-
-    def trigger_reload(self, filename):
-        print('{0} changed, reloading'.format(filename))
-        sys.exit(3)
+    def yield_changes(self):
+        raise NotImplementedError()
 
 
-class StatReloader(BaseReloader):
+class StatReloader(Reloader):
     SLEEP_DURATION = 1
-
-    def watched_files(self):
-        yield from iter_all_python_module_files()
-        yield from self.extra_files
-
-        for directory, pattern in self.extra_directories:
-            yield from directory.glob(pattern)
 
     def yield_changes(self):
         file_times = {}
@@ -120,18 +240,9 @@ class StatReloader(BaseReloader):
 
 
 def run_with_reloader(main_func, *args, **kwargs):
-    import signal
-    signal.signal(signal.SIGTERM, lambda *args: sys.exit(0))
-
     with contextlib.suppress(KeyboardInterrupt):
         if os.environ.get(DJANGO_AUTORELOAD_ENV) == '1':
-            thread = threading.Thread(target=main_func, args=args, kwargs=kwargs)
-            thread.setDaemon(True)
-            thread.start()
-
-            reloader = StatReloader()
-            reloader.wait_for_app_ready()
-            reloader.run()
+            main_func(*args, **kwargs)
         else:
-            exit_code = StatReloader().restart_with_reloader()
-            sys.exit(exit_code)
+            set_start_method('spawn')
+            StatReloader().run()

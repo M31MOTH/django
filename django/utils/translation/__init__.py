@@ -45,7 +45,7 @@ def autoreload_started(sender, **kwargs):
 
         for path in directories:
             absolute_path = path.absolute()
-            sender.watch(absolute_path, '**/*.mo')
+            sender(absolute_path, '**/*.mo')
 
 
 @receiver(file_changed, dispatch_uid='translation_file_changed')
