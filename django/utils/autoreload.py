@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 from collections import namedtuple
+from functools import lru_cache
 from multiprocessing import Event, Process, Queue, set_start_method
 from pathlib import Path
 
@@ -17,6 +18,11 @@ try:
     import termios
 except ImportError:
     termios = None
+
+try:
+    import pywatchman
+except ImportError:
+    pywatchman = None
 
 autoreload_started = Signal()
 file_changed = Signal(providing_args=['path'])
@@ -109,6 +115,30 @@ def iter_all_python_module_files():
         yield pathlib.Path(filename).absolute()
 
 
+@lru_cache(maxsize=10)
+def find_common_roots(paths):
+    """Out of some paths it finds the common roots that need monitoring."""
+    paths = [x.parts for x in paths]
+    root = {}
+    for chunks in sorted(paths, key=len, reverse=True):
+        node = root
+        for chunk in chunks:
+            node = node.setdefault(chunk, {})
+        node.clear()
+
+    rv = set()
+
+    def _walk(node, path):
+        for prefix, child in node.items():
+            _walk(child, path + (prefix,))
+        if not node:
+            subpath = '/'.join(path[1:])
+            rv.add(path[0] + subpath)
+
+    _walk(root, ())
+    return rv
+
+
 def wait_for_app_ready(conditional_thread=None):
     # This could be improved if there was some kind of `app_ready` signal
     while not apps.ready:
@@ -122,9 +152,25 @@ class Reloader:
         self.watch_queue = Queue()
         self.change_queue = Queue()
         self.started_event = Event()
-
-        self._watched_files = set()
         self.child_process = None
+        self.watched_files = set()
+        self.watched_directories = {}
+
+    def watch(self, path, glob=None):
+        if isinstance(path, list):
+            for path in path:
+                self.watched_files.add(path)
+        else:
+            if glob:
+                self.watched_directories[path] = glob
+            else:
+                self.watched_files.add(path)
+
+    def reset_watches(self, paths=None):
+        self.watched_files.clear()
+        self.watched_directories.clear()
+        if paths:
+            self.watch(paths)
 
     @property
     def child_exited_due_to_reloader(self):
@@ -154,27 +200,14 @@ class Reloader:
             if not self.child_exited_due_to_reloader:
                 return
 
-    def watched_files(self):
-        for path, glob in self._watched_files:
-            if glob:
-                yield from path.glob(glob)
-            else:
-                yield path
-
-    def watch(self, path, glob=None):
-        path = Path(path)
-        self._watched_files.add((path, glob))
-
     def read_watch_queue(self):
         while True:
             item = self.watch_queue.get()
             if isinstance(item, ResetWatchedFiles):
-                self._watched_files = set()
-                for path in item.paths:
-                    self.watch(path)
+                self.reset_watches([Path(p) for p in item.paths])
             elif isinstance(item, list):
                 for path, glob in item:
-                    self.watch(path, glob)
+                    self.watch(Path(path), glob)
             else:
                 raise RuntimeError('Unknown watch_queue value: {0} {1}'.format(type(item), item))
 
@@ -187,7 +220,6 @@ class Reloader:
 
     def watch_for_changes(self):
         for change in self.yield_changes():
-            print(change)
             if self.child_process:
                 if self.child_process_exited and not self.child_exited_due_to_reloader:
                     self.start_child_process()
@@ -200,13 +232,16 @@ class Reloader:
         watch_queue_thread = threading.Thread(target=self.read_watch_queue, daemon=True)
         watch_queue_thread.start()
 
-        for module in iter_all_python_module_files():
-            self.watch(module)
+        self.watch(list(iter_all_python_module_files()))
 
         while True:
             self.watch_for_changes()
 
     def yield_changes(self):
+        raise NotImplementedError()
+
+    @classmethod
+    def is_available(cls):
         raise NotImplementedError()
 
 
@@ -229,8 +264,13 @@ class StatReloader(Reloader):
 
             time.sleep(self.SLEEP_DURATION)
 
+    def all_watched_files(self):
+        yield from self.watched_files
+        for path, glob in list(self.watched_directories.items()):
+            yield from path.glob(glob)
+
     def snapshot(self):
-        for file in self.watched_files():
+        for file in self.all_watched_files():
             try:
                 mtime = file.stat().st_mtime
             except OSError:
@@ -238,11 +278,86 @@ class StatReloader(Reloader):
 
             yield file, mtime
 
+    @classmethod
+    def is_available(cls):
+        return True
+
+
+class WatchmanReloader(Reloader):
+    def __init__(self):
+        super().__init__()
+        self.client = pywatchman.client()
+        self.client._connect()
+        self.client.setTimeout(10)
+        self.watched_roots = set()
+
+    def watch(self, path, glob=None):
+        super().watch(path, glob)
+        all_directories = list(self.watched_directories.keys()) + [f.parent for f in self.watched_files]
+        roots = find_common_roots(tuple(all_directories))
+
+        if roots != self.watched_roots:
+            new_roots = roots - self.watched_roots
+            removed_roots = self.watched_roots - roots
+            self.unwatch_roots(removed_roots)
+            self.watch_roots(new_roots)
+
+            self.watched_roots = roots
+
+    @property
+    def subscription_name(self):
+        return 'django:{0}'.format(os.getpid())
+
+    def watch_roots(self, roots):
+        for root in roots:
+            self.client.query('subscribe', root, self.subscription_name, {'fields': ['name'], "dedup_results": True})
+
+    def unwatch_roots(self, roots):
+        for root in roots:
+            self.client.query('unsubscribe', root, self.subscription_name)
+
+    def yield_changes(self):
+        while True:
+            try:
+                result = self.client.receive()
+            except pywatchman.SocketTimeout as e:
+                continue
+
+            if not result['is_fresh_instance']:
+                root = Path(result['root'])
+                yield root / result['files'][-1]
+
+    @classmethod
+    def is_available(cls):
+        if pywatchman is None:
+            return False
+
+        with pywatchman.client() as c:
+            c.setTimeout(1)
+            try:
+                return 'version' in c.capabilityCheck()
+            except Exception:
+                return False
+
 
 def run_with_reloader(main_func, *args, **kwargs):
     with contextlib.suppress(KeyboardInterrupt):
         if os.environ.get(DJANGO_AUTORELOAD_ENV) == '1':
             main_func(*args, **kwargs)
         else:
+
+            WATCHERS = (
+                WatchmanReloader,
+                StatReloader,
+            )
+
+            available_watchers = [
+                cls
+                for cls in WATCHERS
+                if cls.is_available()
+            ]
+
+            reloader = available_watchers[0]
+
             set_start_method('spawn')
-            StatReloader().run()
+            reloader().run()
