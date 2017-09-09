@@ -60,6 +60,9 @@ Minor features
 * The default iteration count for the PBKDF2 password hasher is increased from
   36,000 to 100,000.
 
+* :djadmin:`createsuperuser` now gives a prompt to allow bypassing the
+  :setting:`AUTH_PASSWORD_VALIDATORS` checks when creating a user.
+
 :mod:`django.contrib.contenttypes`
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
