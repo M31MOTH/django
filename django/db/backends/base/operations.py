@@ -46,6 +46,9 @@ class BaseDatabaseOperations:
     UNBOUNDED_FOLLOWING = 'UNBOUNDED ' + FOLLOWING
     CURRENT_ROW = 'CURRENT ROW'
 
+    # Prefix for EXPLAIN queries. None if the backend does not support this.
+    explain_prefix = None
+
     def __init__(self, connection):
         self.connection = connection
         self._cache = None
@@ -636,3 +639,17 @@ class BaseDatabaseOperations:
 
     def window_frame_range_start_end(self, start=None, end=None):
         return self.window_frame_rows_start_end(start, end)
+
+    def explain_query_prefix(self, output_format=None, verbose=False):
+        if not self.explain_prefix:
+            raise NotImplementedError("This backend does not support explaining query execution")
+
+        if output_format:
+            supported_formats = self.connection.features.supported_explain_formats
+            if output_format.upper() not in supported_formats:
+                msg = '{0} is not a recognised format'.format(output_format)
+                if supported_formats:
+                    msg += ' Allowed formats: {0}'.format(', '.join(supported_formats))
+                raise ValueError(msg)
+
+        return self.explain_prefix

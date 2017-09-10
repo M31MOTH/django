@@ -247,6 +247,9 @@ class BaseDatabaseFeatures:
     # Does the backend support keyword parameters for cursor.callproc()?
     supports_callproc_kwargs = False
 
+    # What formats does the backend EXPLAIN syntax support?
+    supported_explain_formats = frozenset()
+
     def __init__(self, connection):
         self.connection = connection
 

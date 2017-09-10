@@ -25,6 +25,7 @@ class DatabaseOperations(BaseDatabaseOperations):
         'PositiveSmallIntegerField': 'unsigned integer',
     }
     cast_char_field_without_max_length = 'char'
+    explain_prefix = 'EXPLAIN'
 
     def date_extract_sql(self, lookup_type, field_name):
         # http://dev.mysql.com/doc/mysql/en/date-and-time-functions.html
@@ -258,3 +259,12 @@ class DatabaseOperations(BaseDatabaseOperations):
             ) % {'lhs': lhs_sql, 'rhs': rhs_sql}, lhs_params * 2 + rhs_params * 2
         else:
             return "TIMESTAMPDIFF(MICROSECOND, %s, %s)" % (rhs_sql, lhs_sql), rhs_params + lhs_params
+
+    def explain_query_prefix(self, output_format=None, verbose=False):
+        prefix = super().explain_query_prefix(output_format, verbose)
+        if verbose:
+            prefix += 'EXTENDED '
+
+        if output_format:
+            prefix += 'FORMAT = %s ' % output_format
+        return prefix

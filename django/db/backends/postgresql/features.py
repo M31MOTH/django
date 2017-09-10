@@ -51,6 +51,8 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     supports_over_clause = True
     supports_aggregate_filter_clause = True
 
+    supported_explain_formats = {'XML', 'JSON', 'YAML'}
+
     @cached_property
     def has_select_for_update_skip_locked(self):
         return self.connection.pg_version >= 90500

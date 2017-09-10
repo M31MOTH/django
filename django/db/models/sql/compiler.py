@@ -452,7 +452,11 @@ class SQLCompiler:
                 from_, f_params = self.get_from_clause()
                 where, w_params = self.compile(self.where) if self.where is not None else ("", [])
                 having, h_params = self.compile(self.having) if self.having is not None else ("", [])
-                result = ['SELECT']
+                result = []
+                if self.query.explain_query:
+                    result.append(self.connection.ops.explain_query_prefix(self.query.explain_format,
+                                                                           self.query.explain_verbose))
+                result.append('SELECT')
                 params = []
 
                 if self.query.distinct:
@@ -1096,6 +1100,16 @@ class SQLCompiler:
 
         sql, params = self.as_sql()
         return 'EXISTS (%s)' % sql, params
+
+    def explain_query(self):
+        result = list(self.execute_sql())
+        # Some backends return 1 item tuples with strings, others return
+        # tuples with integers and strings. Flatten them out into strings.
+        for row in result[0]:
+            if not isinstance(row, str):
+                yield " ".join(str(c) for c in row)
+            else:
+                yield row
 
 
 class SQLInsertCompiler(SQLCompiler):

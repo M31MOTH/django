@@ -1,4 +1,5 @@
 import datetime
+import itertools
 import pickle
 import unittest
 from collections import OrderedDict
@@ -81,6 +82,20 @@ class Queries1Tests(TestCase):
 
         Cover.objects.create(title="first", item=i4)
         Cover.objects.create(title="second", item=cls.i2)
+
+    def test_describe(self):
+        qs = Tag.objects.filter(name='test').all()
+        all_formats = (None,) + tuple(connection.features.supported_explain_formats)
+        for verbose, format in itertools.product((True, False), all_formats):
+            with self.subTest(verbose=verbose, format=format):
+                r = qs.explain(format=format, verbose=verbose)
+                self.assertTrue(isinstance(r, str))
+                self.assertGreater(len(r), 1)
+
+    def test_describe_unknown_format(self):
+        qs = Tag.objects.filter(name='test').all()
+        with self.assertRaises(ValueError):
+            qs.explain(format='does not exist')
 
     def test_subquery_condition(self):
         qs1 = Tag.objects.filter(pk__lte=0)

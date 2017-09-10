@@ -719,6 +719,9 @@ class QuerySet:
         prefetch_related_objects(self._result_cache, *self._prefetch_related_lookups)
         self._prefetch_done = True
 
+    def explain(self, verbose=False, format=None):
+        return self.query.explain(using=self.db, format=format, verbose=verbose)
+
     ##################################################
     # PUBLIC METHODS THAT RETURN A QUERYSET SUBCLASS #
     ##################################################
