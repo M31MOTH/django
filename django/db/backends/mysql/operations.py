@@ -262,9 +262,9 @@ class DatabaseOperations(BaseDatabaseOperations):
 
     def explain_query_prefix(self, output_format=None, verbose=False):
         prefix = super().explain_query_prefix(output_format, verbose)
-        if verbose:
-            prefix += 'EXTENDED '
-
+        # With mysql EXTENDED and FORMAT=json cannot be used together.
         if output_format:
-            prefix += 'FORMAT = %s ' % output_format
+            prefix += ' FORMAT=%s ' % output_format
+        elif verbose:
+            prefix += ' EXTENDED '
         return prefix

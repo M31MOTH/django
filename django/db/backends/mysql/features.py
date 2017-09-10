@@ -46,7 +46,13 @@ class DatabaseFeatures(BaseDatabaseFeatures):
             SET V_I = P_I;
         END;
     """
-    supported_explain_formats = {'JSON'}
+
+    @cached_property
+    def supported_explain_formats(self):
+        if self.connection.mysql_version >= (5, 6):
+            return {'JSON'}
+
+        return frozenset()
 
     @cached_property
     def _mysql_storage_engine(self):

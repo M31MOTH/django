@@ -85,12 +85,13 @@ class Queries1Tests(TestCase):
 
     def test_describe(self):
         qs = Tag.objects.filter(name='test').all()
-        all_formats = (None,) + tuple(connection.features.supported_explain_formats)
-        for verbose, format in itertools.product((True, False), all_formats):
-            with self.subTest(verbose=verbose, format=format):
-                r = qs.explain(format=format, verbose=verbose)
-                self.assertTrue(isinstance(r, str))
-                self.assertGreater(len(r), 1)
+        supported_formats = connection.features.supported_explain_formats
+        all_formats = (None,) + tuple(supported_formats) + tuple(f.lower() for f in supported_formats)
+        for verbose, output_format in itertools.product((True, False), all_formats):
+            with self.subTest(verbose=verbose, format=output_format):
+                r = qs.explain(format=output_format, verbose=verbose)
+                self.assertIsInstance(r, str)
+                self.assertTrue(r)
 
     def test_describe_unknown_format(self):
         qs = Tag.objects.filter(name='test').all()
