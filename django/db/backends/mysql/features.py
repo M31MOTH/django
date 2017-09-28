@@ -52,7 +52,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
         if self.connection.mysql_version >= (5, 6):
             return {'JSON'}
 
-        return frozenset()
+        return set()
 
     @cached_property
     def _mysql_storage_engine(self):

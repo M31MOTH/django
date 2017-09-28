@@ -266,5 +266,6 @@ class DatabaseOperations(BaseDatabaseOperations):
         if output_format:
             prefix += ' FORMAT=%s ' % output_format
         elif verbose:
+            # EXTENDED format is deprecated in 5.7 and above.
             prefix += ' EXTENDED '
         return prefix

@@ -248,7 +248,7 @@ class BaseDatabaseFeatures:
     supports_callproc_kwargs = False
 
     # What formats does the backend EXPLAIN syntax support?
-    supported_explain_formats = frozenset()
+    supported_explain_formats = set()
 
     def __init__(self, connection):
         self.connection = connection

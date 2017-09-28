@@ -83,17 +83,26 @@ class Queries1Tests(TestCase):
         Cover.objects.create(title="first", item=i4)
         Cover.objects.create(title="second", item=cls.i2)
 
-    def test_describe(self):
-        qs = Tag.objects.filter(name='test').all()
+    def test_explain(self):
+        querysets = [
+            Tag.objects.filter(name='test').all(),
+            Tag.objects.filter(name='test').select_related("parent"),
+            Tag.objects.filter(name='test').prefetch_related("children"),
+            Tag.objects.filter(name='test').annotate(Count('children')),
+            Tag.objects.filter(name='test').values_list('name'),
+            Tag.objects.order_by().union(Tag.objects.order_by().filter(name='test')),
+            Tag.objects.all().select_for_update().filter(name='test')
+        ]
         supported_formats = connection.features.supported_explain_formats
         all_formats = (None,) + tuple(supported_formats) + tuple(f.lower() for f in supported_formats)
-        for verbose, output_format in itertools.product((True, False), all_formats):
-            with self.subTest(verbose=verbose, format=output_format):
-                r = qs.explain(format=output_format, verbose=verbose)
-                self.assertIsInstance(r, str)
-                self.assertTrue(r)
+        for idx, queryset in enumerate(querysets):
+            for verbose, output_format in itertools.product((True, False), all_formats):
+                with self.subTest(verbose=verbose, format=output_format, queryset=idx):
+                    result = queryset.explain(format=output_format, verbose=verbose)
+                    self.assertIsInstance(result, str)
+                    self.assertTrue(result)
 
-    def test_describe_unknown_format(self):
+    def test_explain_unknown_format(self):
         qs = Tag.objects.filter(name='test').all()
         with self.assertRaises(ValueError):
             qs.explain(format='does not exist')

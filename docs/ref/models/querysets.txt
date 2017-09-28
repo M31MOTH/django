@@ -2371,6 +2371,39 @@ Class method that returns an instance of :class:`~django.db.models.Manager`
 with a copy of the ``QuerySet``’s methods. See
 :ref:`create-manager-with-queryset-methods` for more details.
 
+
+``explain()``
+
+.. method:: explain(verbose=False, format=None)
+
+Returns the execution plan of the current queryset as a string. This details
+how the database would execute the given query, highlighting any indexes or
+joins used. For example, when using ``postgresql``::
+
+    >>> print(Blog.objects.filter(title="My Blog").explain())
+    Seq Scan on blog  (cost=0.00..35.50 rows=10 width=12)
+      Filter: (title = 'My Blog'::bpchar)
+
+The ``verbose`` parameter will return more detailed information on the query,
+however on some databases this will execute the query::
+
+    >>> print(Blog.objects.filter(title="My Blog").explain(verbose=True))
+    Seq Scan on public.blog  (cost=0.00..35.50 rows=10 width=12) (actual time=0.004..0.004 rows=10 loops=1)
+      Output: id, title
+      Filter: (blog.title = 'My Blog'::bpchar)
+    Planning time: 0.064 ms
+    Execution time: 0.058 ms
+
+The ``format`` parameter can output the explanation in different formats,
+depending on the database in use.
+
+.. warning::
+
+    This method is only useful as an aide for debugging poorly performing
+    queries. The output is different for each database and version, do
+    not attempt to parse the output.
+
+
 .. _field-lookups:
 
 ``Field`` lookups
