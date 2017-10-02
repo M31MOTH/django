@@ -420,7 +420,7 @@ class QuerySet:
             if obj.pk is None:
                 obj.pk = obj._meta.pk.get_pk_value_on_save(obj)
 
-    def bulk_create(self, objs, batch_size=None):
+    def bulk_create(self, objs, batch_size=None, on_conflict=None):
         """
         Insert each of the instances into the database. Do *not* call
         save() on each of the instances, do not send any pre/post_save
@@ -448,6 +448,11 @@ class QuerySet:
         for parent in self.model._meta.get_parent_list():
             if parent._meta.concrete_model is not self.model._meta.concrete_model:
                 raise ValueError("Can't bulk create a multi-table inherited model")
+
+        if on_conflict:
+            on_conflict = on_conflict.lower()
+            if on_conflict != 'ignore':
+                raise ValueError("'%s' is an invalid value for on_conflict. Allowed values: 'ignore'" % on_conflict)
         if not objs:
             return objs
         self._for_write = True
@@ -458,10 +463,10 @@ class QuerySet:
         with transaction.atomic(using=self.db, savepoint=False):
             objs_with_pk, objs_without_pk = partition(lambda o: o.pk is None, objs)
             if objs_with_pk:
-                self._batched_insert(objs_with_pk, fields, batch_size)
+                self._batched_insert(objs_with_pk, fields, batch_size, on_conflict=on_conflict)
             if objs_without_pk:
                 fields = [f for f in fields if not isinstance(f, AutoField)]
-                ids = self._batched_insert(objs_without_pk, fields, batch_size)
+                ids = self._batched_insert(objs_without_pk, fields, batch_size, on_conflict=on_conflict)
                 if connection.features.can_return_ids_from_bulk_insert:
                     assert len(ids) == len(objs_without_pk)
                 for obj_without_pk, pk in zip(objs_without_pk, ids):
@@ -1111,7 +1116,7 @@ class QuerySet:
     # PRIVATE METHODS #
     ###################
 
-    def _insert(self, objs, fields, return_id=False, raw=False, using=None):
+    def _insert(self, objs, fields, return_id=False, raw=False, using=None, on_conflict=None):
         """
         Insert a new record for the given model. This provides an interface to
         the InsertQuery class and is how Model.save() is implemented.
@@ -1119,18 +1124,20 @@ class QuerySet:
         self._for_write = True
         if using is None:
             using = self.db
-        query = sql.InsertQuery(self.model)
+        query = sql.InsertQuery(self.model, on_conflict=on_conflict)
         query.insert_values(fields, objs, raw=raw)
         return query.get_compiler(using=using).execute_sql(return_id)
     _insert.alters_data = True
     _insert.queryset_only = False
 
-    def _batched_insert(self, objs, fields, batch_size):
+    def _batched_insert(self, objs, fields, batch_size, on_conflict=None):
         """
         A helper method for bulk_create() to insert the bulk one batch at a
         time. Insert recursively a batch from the front of the bulk and then
         _batched_insert() the remaining objects again.
         """
+        if on_conflict == 'ignore' and not connections[self.db].features.supports_on_conflict_ignore:
+            raise ValueError('This database backend does not support ON CONFLICT IGNORE')
         if not objs:
             return
         ops = connections[self.db].ops
@@ -1138,13 +1145,13 @@ class QuerySet:
         inserted_ids = []
         for item in [objs[i:i + batch_size] for i in range(0, len(objs), batch_size)]:
             if connections[self.db].features.can_return_ids_from_bulk_insert:
-                inserted_id = self._insert(item, fields=fields, using=self.db, return_id=True)
+                inserted_id = self._insert(item, fields=fields, using=self.db, return_id=True, on_conflict=on_conflict)
                 if isinstance(inserted_id, list):
                     inserted_ids.extend(inserted_id)
                 else:
                     inserted_ids.append(inserted_id)
             else:
-                self._insert(item, fields=fields, using=self.db)
+                self._insert(item, fields=fields, using=self.db, on_conflict=on_conflict)
         return inserted_ids
 
     def _chain(self, **kwargs):

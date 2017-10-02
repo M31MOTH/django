@@ -1204,7 +1204,8 @@ class SQLInsertCompiler(SQLCompiler):
         # going to be column names (so we can avoid the extra overhead).
         qn = self.connection.ops.quote_name
         opts = self.query.get_meta()
-        result = ['INSERT INTO %s' % qn(opts.db_table)]
+        insert_statement = self.connection.ops.insert_statement(on_conflict=self.query.on_conflict)
+        result = ['%s %s' % (insert_statement, qn(opts.db_table))]
 
         has_fields = bool(self.query.fields)
         fields = self.query.fields if has_fields else [opts.pk]
@@ -1228,6 +1229,8 @@ class SQLInsertCompiler(SQLCompiler):
 
         placeholder_rows, param_rows = self.assemble_as_sql(fields, value_rows)
 
+        on_conflict_postfix = self.connection.ops.on_conflict_postfix(on_conflict=self.query.on_conflict)
+
         if self.return_id and self.connection.features.can_return_id_from_insert:
             if self.connection.features.can_return_ids_from_bulk_insert:
                 result.append(self.connection.ops.bulk_insert_sql(fields, placeholder_rows))
@@ -1235,6 +1238,8 @@ class SQLInsertCompiler(SQLCompiler):
             else:
                 result.append("VALUES (%s)" % ", ".join(placeholder_rows[0]))
                 params = [param_rows[0]]
+            if on_conflict_postfix:
+                result.append(on_conflict_postfix)
             col = "%s.%s" % (qn(opts.db_table), qn(opts.pk.column))
             r_fmt, r_params = self.connection.ops.return_insert_id()
             # Skip empty r_fmt to allow subclasses to customize behavior for
@@ -1246,8 +1251,12 @@ class SQLInsertCompiler(SQLCompiler):
 
         if can_bulk:
             result.append(self.connection.ops.bulk_insert_sql(fields, placeholder_rows))
+            if on_conflict_postfix:
+                result.append(on_conflict_postfix)
             return [(" ".join(result), tuple(p for ps in param_rows for p in ps))]
         else:
+            if on_conflict_postfix:
+                result.append(on_conflict_postfix)
             return [
                 (" ".join(result + ["VALUES (%s)" % ", ".join(p)]), vals)
                 for p, vals in zip(placeholder_rows, param_rows)

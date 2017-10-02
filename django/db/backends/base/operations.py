@@ -639,3 +639,9 @@ class BaseDatabaseOperations:
 
     def window_frame_range_start_end(self, start=None, end=None):
         return self.window_frame_rows_start_end(start, end)
+
+    def insert_statement(self, on_conflict=None):
+        return 'INSERT INTO'
+
+    def on_conflict_postfix(self, on_conflict=None):
+        return ''

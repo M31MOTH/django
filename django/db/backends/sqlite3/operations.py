@@ -284,3 +284,9 @@ class DatabaseOperations(BaseDatabaseOperations):
         if internal_type == 'TimeField':
             return "django_time_diff(%s, %s)" % (lhs_sql, rhs_sql), lhs_params + rhs_params
         return "django_timestamp_diff(%s, %s)" % (lhs_sql, rhs_sql), lhs_params + rhs_params
+
+    def insert_statement(self, on_conflict=None):
+        if on_conflict == 'ignore':
+            return 'INSERT OR IGNORE INTO'
+
+        return super().insert_statement(on_conflict)

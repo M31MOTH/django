@@ -1918,7 +1918,7 @@ if uniqueness is not enforced at the database level.
 ``bulk_create()``
 ~~~~~~~~~~~~~~~~~
 
-.. method:: bulk_create(objs, batch_size=None)
+.. method:: bulk_create(objs, batch_size=None, on_conflict=None)
 
 This method inserts the provided list of objects into the database in an
 efficient manner (generally only 1 query, no matter how many objects there
@@ -1942,6 +1942,16 @@ This has a number of caveats though:
 The ``batch_size`` parameter controls how many objects are created in single
 query. The default is to create all objects in one batch, except for SQLite
 where the default is such that at most 999 variables per query are used.
+
+On database backends that support it, the ``on_conflict`` parameter controls
+how the database handles conflicting data, i.e containing duplicate UNIQUE
+values. Currently this parameter can be ``None`` in which case an
+:exc:`~django.db.IntegrityError` will be thrown, or ``ignore`` in which case
+the database will ignore any failing rows.
+
+.. versionchanged:: 2.1
+
+    The ``on_conflict`` parameter was added.
 
 ``count()``
 ~~~~~~~~~~~

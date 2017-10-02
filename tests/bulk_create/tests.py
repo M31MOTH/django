@@ -1,6 +1,6 @@
 from operator import attrgetter
 
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.db.models import FileField, Value
 from django.db.models.functions import Lower
 from django.test import (
@@ -255,3 +255,34 @@ class BulkCreateTests(TestCase):
         # Objects save via bulk_create() and save() should have equal state.
         self.assertEqual(country_nl._state.adding, country_be._state.adding)
         self.assertEqual(country_nl._state.db, country_be._state.db)
+
+    @skipIfDBFeature("supports_on_conflict_ignore")
+    def test_on_conflict_value_error(self):
+        message = 'This database backend does not support ON CONFLICT IGNORE'
+        with self.assertRaises(ValueError, message=message):
+            TwoFields.objects.bulk_create(self.data)
+
+    @skipUnlessDBFeature("supports_on_conflict_ignore")
+    def test_on_conflict_ignore(self):
+        data = [
+            TwoFields(f1=1, f2=1),
+            TwoFields(f1=2, f2=2),
+            TwoFields(f1=3, f2=3)
+        ]
+        TwoFields.objects.bulk_create(data)
+        self.assertEqual(TwoFields.objects.count(), 3)
+        TwoFields.objects.bulk_create(data, on_conflict='ignore')
+        self.assertEqual(TwoFields.objects.count(), 3)
+
+        with self.assertRaises(IntegrityError):
+            TwoFields.objects.bulk_create(data)
+
+    def test_on_conflict_invalid(self):
+        message = "'test' is an invalid value for on_conflict. Allowed values: 'ignore'"
+        with self.assertRaises(ValueError, message=message):
+            Country.objects.bulk_create(self.data, on_conflict='test')
+
+    @skipUnlessDBFeature("supports_on_conflict_ignore")
+    def test_on_conflict_case_insensitive(self):
+        Country.objects.bulk_create(self.data, on_conflict='IGNORE')
+        self.assertEqual(Country.objects.count(), 4)

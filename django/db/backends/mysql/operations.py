@@ -258,3 +258,9 @@ class DatabaseOperations(BaseDatabaseOperations):
             ) % {'lhs': lhs_sql, 'rhs': rhs_sql}, lhs_params * 2 + rhs_params * 2
         else:
             return "TIMESTAMPDIFF(MICROSECOND, %s, %s)" % (rhs_sql, lhs_sql), rhs_params + lhs_params
+
+    def insert_statement(self, on_conflict=None):
+        if on_conflict == 'ignore':
+            return 'INSERT IGNORE INTO'
+
+        return super().insert_statement(on_conflict)

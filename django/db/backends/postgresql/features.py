@@ -66,3 +66,7 @@ class DatabaseFeatures(BaseDatabaseFeatures):
     @cached_property
     def has_gin_pending_list_limit(self):
         return self.connection.pg_version >= 90500
+
+    @cached_property
+    def supports_on_conflict_ignore(self):
+        return self.connection.pg_version >= 90500

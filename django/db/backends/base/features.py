@@ -247,6 +247,10 @@ class BaseDatabaseFeatures:
     # Does the backend support keyword parameters for cursor.callproc()?
     supports_callproc_kwargs = False
 
+    # Does the backend support ignoring constraint or uniqueness errors during
+    # inserting?
+    supports_on_conflict_ignore = True
+
     def __init__(self, connection):
         self.connection = connection
 

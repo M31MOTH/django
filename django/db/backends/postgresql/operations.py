@@ -257,3 +257,9 @@ class DatabaseOperations(BaseDatabaseOperations):
                 'and FOLLOWING.'
             )
         return start_, end_
+
+    def on_conflict_postfix(self, on_conflict=None):
+        if on_conflict == 'ignore':
+            return 'ON CONFLICT DO NOTHING'
+
+        return super().on_conflict_postfix(on_conflict)
